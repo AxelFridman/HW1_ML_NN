@@ -67,6 +67,11 @@ def neuron_trials(counts, session, neuron):
     return trials
 
 
+def trial_mse(f, trials):
+    """MSE of the fitted curve against every single trial, instead of against the 8 means."""
+    return np.mean((f(trials['orientation'].values) - trials['count'].values) ** 2)
+
+
 def split_means(trials):
     """Mean count per orientation (rows) in each split (columns), and each split's noise floor:
     the MSE that even the true tuning curve would have, i.e. the mean squared SEM."""

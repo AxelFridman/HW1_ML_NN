@@ -4,10 +4,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from common import COLORS, NEURON, NOISY, OUT, SESSION, SHORT, SKIP, save, save_tex
-from models import MODELS, N_PARAMS, ORI, fit, metrics, neuron_trials, split_means
+from common import COLORS, NEURON, NOISY, OUT, SESSION, SHORT, SKIP, save, save_tex, stack
+from models import MODELS, N_PARAMS, ORI, fit, metrics, neuron_trials, split_means, trial_mse
 
 THREE = ['7th-order', 'Gaussian', 'von Mises']  # the three models compared across neurons
+CHOICE = 'von Mises'  # the model we end up choosing, highlighted in the tables
 counts = pd.read_csv(f'{OUT}/counts.csv')
 neurons = pd.read_csv(f'{OUT}/neurons.csv').set_index(['session', 'neuron'])
 snr = neurons.loc[SESSION, 'snr']
@@ -32,6 +33,7 @@ for n, models in [(NEURON, MODELS)] + [(n, THREE) for n in NOISY]:
         f, p = fit(m, ORI, means['train'].values)
         test = metrics(means['test'].values, f(ORI))
         rows.append({'neuron': n, 'Model': m, '$k$': N_PARAMS[m],
+                     'Trial MSE': trial_mse(f, trials[trials.split == 'train']),
                      'Train MSE': metrics(means['train'].values, f(ORI))['MSE'], 'Test MSE': test['MSE'],
                      'Test MAE': test['MAE'], 'Test MAPE (\\%)': test['MAPE'], 'Test $R^2$': test['R2'],
                      'LOO RMSE': loo_rmse(m, all_means), 'Wrap': abs(f(180.0) - f(0.0)),
@@ -43,15 +45,24 @@ fmt = {'Train MSE': '{:.2f}', 'Test MSE': '{:.2f}', 'Test MAE': '{:.2f}', 'Test 
        'Test $R^2$': '{:.3f}', 'LOO RMSE': '{:.1f}', 'Wrap': '{:.1f}'}
 fmt = {c: f.format for c, f in fmt.items()}
 
-# table 6.1: the six models on the selected neuron
-main = res[res.neuron == NEURON].drop(columns=['neuron', 'Test MAE', 'floor', 'min_mean', 'kappa'])
-main['Interpretable'] = np.where(main.Model.isin(['Gaussian', 'von Mises']), 'yes', 'no')
-main['Circular'] = np.where(main.Model == 'von Mises', 'yes', 'no')
-main.to_latex(f'{OUT}/tab_compare.tex', index=False, na_rep='--', formatters=fmt, column_format='lrrrrrrrcc')
+# table 6.1 of the assignment: the six models on the selected neuron, chosen model in bold
+main = res[res.neuron == NEURON]
+summary = pd.DataFrame({
+    'Model': main.Model, 'Number of parameters': main['$k$'].astype(str),
+    'MSE': main['Train MSE'].map('{:.2f}'.format),
+    'MSE (single trials)': main['Trial MSE'].map('{:.0f}'.format),
+    'Biologically interpretable?': np.where(main.Model.isin(['Gaussian', 'von Mises']), 'yes', 'no'),
+    'Accounts for circularity?': np.where(main.Model == 'von Mises', 'yes', 'no')})
+chosen = summary.Model == CHOICE
+summary.loc[chosen] = summary.loc[chosen].map('\\textbf{{{}}}'.format)
+summary.columns = ['Model', stack('Number of', 'parameters'), 'MSE', stack('Trial', 'MSE'),
+                   stack('Biologically', 'interpretable?'), stack('Accounts for', 'circularity?')]
+summary.to_latex(f'{OUT}/tab_compare.tex', index=False, column_format='lrrrcc')
 
 # the three models on the three neurons
 noise = res[res.Model.isin(THREE)].copy()
 noise['Neuron'] = [f'\\#{n} (SNR {snr[n]:.2f})' for n in noise.neuron]
+noise['Model'] = noise.Model.map(lambda m: f'\\textbf{{{m}}}' if m == CHOICE else m)
 columns = ['Train MSE', 'Test MSE', 'Test MAE', 'Test MAPE (\\%)', 'Test $R^2$', 'LOO RMSE']
 noise.set_index(['Neuron', 'Model'])[columns].to_latex(
     f'{OUT}/tab_noise.tex', na_rep='--', formatters=fmt, multirow=True, index_names=False, column_format='llrrrrrr')

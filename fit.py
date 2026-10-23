@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 
 from common import COLORS, NEURON, OUT, SESSION, SHORT, save, save_tex
-from models import DEGREE, MODELS, N_PARAMS, ORI, fit, metrics, neuron_trials, split_means
+from models import DEGREE, MODELS, N_PARAMS, ORI, fit, metrics, neuron_trials, split_means, trial_mse
 
 counts = pd.read_csv(f'{OUT}/counts.csv')
 trials = neuron_trials(counts, SESSION, NEURON)
@@ -22,14 +22,16 @@ pd.DataFrame({'Training trials': by_ori.size().map('{:d}'.format), 'Mean count':
     columns='{:g}'.format).rename_axis(columns='Orientation (deg)').to_latex(f'{OUT}/tab_means.tex', column_format='lrrrrrrrr')
 
 # fit each model to the 8 training means (same solution as fitting the 1920 training trials)
+train_trials = trials[trials.split == 'train']
 fits = {m: fit(m, ORI, train) for m in MODELS}
-table = pd.DataFrame([{'Model': m, '$k$': N_PARAMS[m], **metrics(train, f(ORI)), 'Val. MSE': metrics(val, f(ORI))['MSE']}
+table = pd.DataFrame([{'Model': m, '$k$': N_PARAMS[m], **metrics(train, f(ORI)),
+                       'Trial MSE': trial_mse(f, train_trials), 'Val. MSE': metrics(val, f(ORI))['MSE']}
                       for m, (f, p) in fits.items()])
 table.to_csv(f'{OUT}/fits.csv', index=False)
 table.rename(columns={'MAPE': 'MAPE (\\%)', 'R2': '$R^2$'}).to_latex(
-    f'{OUT}/tab_fits.tex', index=False, column_format='lrrrrrr',
+    f'{OUT}/tab_fits.tex', index=False, column_format='lrrrrrrr',
     formatters={'MSE': '{:.2f}'.format, 'MAE': '{:.2f}'.format, 'MAPE (\\%)': '{:.1f}'.format,
-                '$R^2$': '{:.3f}'.format, 'Val. MSE': '{:.2f}'.format})
+                '$R^2$': '{:.3f}'.format, 'Trial MSE': '{:.1f}'.format, 'Val. MSE': '{:.2f}'.format})
 
 ylim = (train.min() - 0.25 * np.ptp(train), train.max() + 0.4 * np.ptp(train))  # room for the legend
 
@@ -55,7 +57,6 @@ sweep = pd.DataFrame([{s: metrics(means[s].values, np.polynomial.Polynomial.fit(
 fig, ax = plt.subplots(figsize=(6, 4.5))
 for s, c, label in [('train', 'k', 'Train'), ('val', '0.55', 'Validation')]:
     ax.plot(sweep.index, sweep[s], 'o-', color=c, label=label)
-    ax.axhline(floor[s], color=c, ls='--', lw=1)
 ax.set_yscale('symlog', linthresh=0.1)  # linear below 0.1 so that MSE = 0 can be shown
 ax.set(ylim=(0, None), xlabel='Polynomial degree', ylabel='MSE (spikes$^2$)')
 ax.legend(frameon=False)
@@ -84,7 +85,7 @@ save(fig, 'circular')
 cut = pd.DataFrame([{m: metrics(train, fit(m, (ORI - c) % 180, train)[0]((ORI - c) % 180))['MSE']
                      for m in ['4th-order', 'Gaussian', 'von Mises']} for c in ORI], index=ORI)
 fig, ax = plt.subplots(figsize=(6, 4.5))
-for m in cut:
+for m in ['Gaussian', 'von Mises']:
     ax.plot(cut.index, cut[m], 'o-', color=COLORS[m], label=m)
 ax.set(yscale='log', xticks=[0, 45, 90, 135], xlabel='Start of the orientation axis (deg)', ylabel='MSE (spikes$^2$)')
 ax.legend(frameon=False)
@@ -106,6 +107,9 @@ save_tex('fit',
          hwhmVM=f'{np.rad2deg(0.5 * np.arccos(np.log(np.cosh(kappa)) / kappa)):.1f}',
          peakVM=f'{Bv + Av * np.exp(kappa):.1f}', troughVM=f'{Bv + Av * np.exp(-kappa):.1f}',
          cutGaussMin=f'{cut["Gaussian"].min():.1f}', cutGaussBest=f'{cut["Gaussian"].idxmin():g}',
-         cutVM=f'{cut["von Mises"].mean():.2f}')
+         cutVM=f'{cut["von Mises"].mean():.2f}',
+         cutQuartMin=f'{cut["4th-order"].min():.1f}', cutQuartMax=f'{cut["4th-order"].max():.1f}',
+         trialFloor=f'{train_trials.groupby("orientation")["count"].var().mean():.0f}',
+         **{f'trial{SHORT[m]}': f'{r["Trial MSE"]:.0f}' for m, r in table.set_index('Model').iterrows()})
 print(table.round(3).to_string(index=False))
 print(cut.round(2))

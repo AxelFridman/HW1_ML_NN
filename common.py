@@ -16,8 +16,8 @@ SKIP = ['105l001p16']    # its codes 6-8 do not behave like consecutive orientat
 NEURON = 81              # neuron analysed in parts 2-5
 NOISY = [4, 91]          # noisier neurons for part 5
 
-COLORS = {'Linear': '#86b6ef', '3rd-order': '#5598e7', '4th-order': '#2a78d6',
-          '7th-order': '#184f95', 'Gaussian': '#eb6834', 'von Mises': '#1baf7a'}
+COLORS = {'Linear': '#eda100', '3rd-order': '#008300', '4th-order': '#e87ba4',
+          '7th-order': '#2a78d6', 'Gaussian': '#eb6834', 'von Mises': '#1baf7a'}
 SHORT = {'Linear': 'Lin', '3rd-order': 'Cub', '4th-order': 'Quart',  # model names inside LaTeX macro names
          '7th-order': 'Sept', 'Gaussian': 'Gauss', 'von Mises': 'VM'}
 
@@ -29,6 +29,11 @@ plt.rcParams.update({'font.size': 14, 'axes.labelsize': 16, 'xtick.labelsize': 1
 def save(fig, name):
     fig.savefig(os.path.join(FIGS, name + '.png'), dpi=200, bbox_inches='tight')
     plt.close(fig)
+
+
+def stack(top, bottom):
+    """A two-line table header, so that wide tables stay inside the page."""
+    return f'\\shortstack{{{top}\\\\{bottom}}}'
 
 
 def save_tex(name, **numbers):

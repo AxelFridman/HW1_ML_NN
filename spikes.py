@@ -1,5 +1,5 @@
-"""Part 1 figures from the raw 1 ms spike trains: how the data are organised, how one trial becomes one
-spike count, and the raster and PSTH of the selected neuron."""
+"""Part 1 figures from the raw 1 ms spike trains: how the data are organised and how one trial becomes
+one spike count."""
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -47,21 +47,6 @@ for t in range(8):
 ax.set(xlim=(0, 1280), ylim=(7.5, -0.5), yticks=range(8), yticklabels=[f'trial {t}: {theta[t]:g} deg' for t in range(8)],
        xlabel='Time from stimulus onset (ms)')
 save(fig, 'count_example')
-
-# 3. raster of the first 25 trials of each orientation, and the PSTH at the preferred and orthogonal orientations
-fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
-rows = np.concatenate([np.flatnonzero(theta == t)[:25] for t in ori])
-ax1.eventplot([np.flatnonzero(s[i]) for i in rows], color='k', linewidths=0.6)
-for y in np.arange(1, 8) * 25 - 0.5:
-    ax1.axhline(y, color='0.8', lw=0.5)
-ax1.set(xlim=(0, 1280), ylim=(-0.5, 199.5), yticks=np.arange(8) * 25 + 12, yticklabels=[f'{t:g}' for t in ori],
-        xlabel='Time from stimulus onset (ms)', ylabel='Orientation (deg)')
-for t, color in [(pref, 'k'), ((pref + 90) % 180, '0.6')]:
-    rate = s[theta == t].reshape(-1, 64, 20).mean(axis=(0, 2)) * 1000  # Hz in 20 ms bins
-    ax2.plot(np.arange(64) * 20 + 10, rate, color=color, label=f'{t:g} deg')
-ax2.set(xlim=(0, 1280), ylim=(0, None), xlabel='Time from stimulus onset (ms)', ylabel='Firing rate (Hz)')
-ax2.legend(frameon=False, ncol=2, loc='lower center', bbox_to_anchor=(0.5, 1))
-save(fig, 'raster')
 
 save_tex('spikes',
          arrayShape=' \\times '.join(map(str, spikes.shape)),
