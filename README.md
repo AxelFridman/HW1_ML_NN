@@ -1,9 +1,5 @@
 # HW1: orientation tuning in macaque V1
 
-Machine Learning & Neural Networks for Neuroscience, Bar-Ilan University.
-
-From the 1 ms spike trains of V1 neurons to orientation tuning curves, then polynomial, Gaussian and
-von Mises regression, and how well each model generalizes to new trials, new orientations and noisier neurons.
 
 ## Data
 
