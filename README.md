@@ -22,7 +22,7 @@ Every table, figure and number goes to `out/`.
 | `tuning.py` | Mean, SD and SEM per neuron and orientation → `out/tuning.csv`; rate, preferred orientation, selectivity, smoothness, SNR, Fano factor and drift per neuron → `out/neurons.csv`; the choice of session and neuron |
 | `spikes.py` | Figures from the raw spike trains: how the data are organised, and from spikes to counts |
 | `models.py` | The six models, least-squares fitting, goodness-of-fit metrics and the train/validation/test split |
-| `fit.py` | Parts 2-4: polynomial, Gaussian and von Mises fits |
+| `fit.py` | Parts 2-4: polynomial, Gaussian and von Mises fits, their coefficients, and a lasso penalty tuned on the validation means |
 | `generalize.py` | Part 5: held-out trials, held-out orientations, noisier neurons, other neurons and sessions |
 | `common.py` | Paths, the chosen session and neurons, plot style |
 | `make_all.py` | Runs the scripts in order |

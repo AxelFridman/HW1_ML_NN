@@ -3,13 +3,17 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from common import COLORS, NEURON, OUT, SESSION, SHORT, save, save_tex
-from models import DEGREE, MODELS, N_PARAMS, ORI, fit, metrics, neuron_trials, split_means, trial_mse
+from sklearn.linear_model import Lasso
+from sklearn.pipeline import make_pipeline
+from sklearn.preprocessing import StandardScaler
+
+from common import COLORS, NEURON, OUT, SESSION, SHORT, save, save_tex, stack
+from models import CURVES, DEGREE, MODELS, N_PARAMS, ORI, fit, metrics, neuron_trials, split_means, trial_mse
 
 counts = pd.read_csv(f'{OUT}/counts.csv')
 trials = neuron_trials(counts, SESSION, NEURON)
 means, floor = split_means(trials)
-train, val = means['train'].values, means['val'].values
+train, val, test = means['train'].values, means['val'].values, means['test'].values
 sem = trials[trials.split == 'train'].groupby('orientation')['count'].sem().values
 
 # the data the models see: one row per trial (the first 8 shown) and the 8 training means they are fitted to
@@ -28,10 +32,58 @@ table = pd.DataFrame([{'Model': m, '$k$': N_PARAMS[m], **metrics(train, f(ORI)),
                        'Trial MSE': trial_mse(f, train_trials), 'Val. MSE': metrics(val, f(ORI))['MSE']}
                       for m, (f, p) in fits.items()])
 table.to_csv(f'{OUT}/fits.csv', index=False)
-table.rename(columns={'MAPE': 'MAPE (\\%)', 'R2': '$R^2$'}).to_latex(
-    f'{OUT}/tab_fits.tex', index=False, column_format='lrrrrrrr',
-    formatters={'MSE': '{:.2f}'.format, 'MAE': '{:.2f}'.format, 'MAPE (\\%)': '{:.1f}'.format,
-                '$R^2$': '{:.3f}'.format, 'Trial MSE': '{:.1f}'.format, 'Val. MSE': '{:.2f}'.format})
+scores = {'MSE': '{:.2f}'.format, 'MAE': '{:.2f}'.format, 'MAPE (\\%)': '{:.1f}'.format,
+          '$R^2$': '{:.3f}'.format, 'Trial MSE': '{:.1f}'.format, 'Val. MSE': '{:.2f}'.format}
+fit_table = table.rename(columns={'MAPE': 'MAPE (\\%)', 'R2': '$R^2$'}).set_index('Model')
+fit_table.loc[list(DEGREE)].reset_index().to_latex(  # the polynomials of part 2
+    f'{OUT}/tab_fits.tex', index=False, column_format='lrrrrrrr', formatters=scores)
+
+
+def sci(v):
+    """Readable number: plain for ordinary sizes, scientific for the tiny high-order coefficients."""
+    if v == 0 or abs(v) >= 1e-3:
+        return f'{v:.3g}'
+    mantissa, exponent = f'{v:.1e}'.split('e')
+    return f'${mantissa}\\times 10^{{{int(exponent)}}}$'
+
+
+# the fitted polynomial coefficients (part 2)
+pd.DataFrame([[m] + [sci(v) for v in fits[m][1]] for m in DEGREE],
+             columns=['Model'] + [f'$\\beta_{i}$' for i in range(8)]).fillna('').to_latex(
+    f'{OUT}/tab_coef.tex', index=False, na_rep='', column_format='l' + 'r' * 8)
+
+# the two nonlinear models: their parameters next to the same scores as the polynomials (part 4)
+WIDTH = {'Gaussian': '$\\sigma$', 'von Mises': '$\\kappa$'}
+nonlinear = pd.DataFrame([{'Model': m, '$B$': f'{p[0]:.1f}', '$A$': f'{p[1]:.1f}',
+                           '$\\mu$ (deg)': f'{p[2] % 180:.1f}', 'Width': f'{WIDTH[m]} = {p[3]:.2f}'}
+                          for m in CURVES for p in [fits[m][1]]]).set_index('Model')
+nonlinear.join(fit_table.loc[list(CURVES), ['MSE', 'Trial MSE', 'Val. MSE']]).reset_index().to_latex(
+    f'{OUT}/tab_nonlinear.tex', index=False, column_format='lrrrlrrr', formatters=scores)
+
+# does an L1 (lasso) penalty, with its strength chosen on the validation means, beat the plain fit?
+powers = lambda theta, d: np.vander(theta, d + 1, increasing=True)[:, 1:]
+LAMBDAS = np.r_[0, np.logspace(-6, 2.5, 120)]  # down to 1e-6, so that "best lambda = 0" is not a coarse grid
+rows, chosen_lambdas = [], []
+for m, d in DEGREE.items():
+    scored = []
+    for lam in LAMBDAS:
+        if lam == 0:  # no penalty: the ordinary least-squares fit of part 2
+            predict, kept = fits[m][0](ORI), d
+        else:
+            model = make_pipeline(StandardScaler(), Lasso(alpha=lam, max_iter=100000))
+            model.fit(powers(ORI, d), train)
+            predict, kept = model.predict(powers(ORI, d)), int(np.sum(model[-1].coef_ != 0))
+        scored.append((metrics(val, predict)['MSE'], lam, predict, kept))
+    val_mse, lam, predict, kept = min(scored, key=lambda s: s[0])
+    chosen_lambdas.append(lam)
+    rows.append({'Model': m, '$\\lambda$': f'{lam:.3g}', 'Terms kept': f'{kept}/{d}',
+                 'Val. MSE (lasso)': val_mse, 'Val. MSE (plain)': metrics(val, fits[m][0](ORI))['MSE'],
+                 'Test MSE (lasso)': metrics(test, predict)['MSE'],
+                 'Test MSE (plain)': metrics(test, fits[m][0](ORI))['MSE']})
+lasso = pd.DataFrame(rows)
+lasso.columns = ['Model', '$\\lambda$', stack('Terms', 'kept'), stack('Val. MSE', '(lasso)'),
+                 stack('Val. MSE', '(plain)'), stack('Test MSE', '(lasso)'), stack('Test MSE', '(plain)')]
+lasso.to_latex(f'{OUT}/tab_lasso.tex', index=False, na_rep='--', float_format='%.2f', column_format='lrrrrrr')
 
 ylim = (train.min() - 0.25 * np.ptp(train), train.max() + 0.4 * np.ptp(train))  # room for the legend
 
@@ -109,6 +161,8 @@ save_tex('fit',
          cutGaussMin=f'{cut["Gaussian"].min():.1f}', cutGaussBest=f'{cut["Gaussian"].idxmin():g}',
          cutVM=f'{cut["von Mises"].mean():.2f}',
          cutQuartMin=f'{cut["4th-order"].min():.1f}', cutQuartMax=f'{cut["4th-order"].max():.1f}',
+         lamMax=f'{max(chosen_lambdas):.3g}',
+         betaSmall=sci(min(fits['7th-order'][1], key=abs)),
          trialFloor=f'{train_trials.groupby("orientation")["count"].var().mean():.0f}',
          **{f'trial{SHORT[m]}': f'{r["Trial MSE"]:.0f}' for m, r in table.set_index('Model').iterrows()})
 print(table.round(3).to_string(index=False))
