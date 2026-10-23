@@ -1,4 +1,5 @@
-"""Spike count of every V1 neuron on every trial of every session -> out/counts.csv."""
+"""Spike count of every V1 neuron on every trial of every session -> out/counts.csv,
+and the size of every session -> out/sessions.csv."""
 import glob
 import os
 
@@ -21,7 +22,7 @@ def load_session(session, area=0):
 
 
 if __name__ == '__main__':
-    tables = []
+    tables, sizes = [], []
     for path in sorted(glob.glob(os.path.join(DATA, '*_spikes.mat'))):
         session = os.path.basename(path).replace('_spikes.mat', '')
         spikes, stim = load_session(session)
@@ -34,5 +35,9 @@ if __name__ == '__main__':
             'stim': np.repeat(stim, n_neurons),
             'orientation': np.repeat((stim - 1) * 22.5, n_neurons),
             'count': counts.ravel()}))
+        with h5py.File(path, 'r') as f:
+            n_v2 = f[f['spikes'][1, 0]].shape[2]
+        sizes.append({'session': session, 'trials': n_trials, 'ms': spikes.shape[1], 'v1': n_neurons, 'v2': n_v2})
         print(session, spikes.shape)
     pd.concat(tables).to_csv(os.path.join(OUT, 'counts.csv'), index=False)
+    pd.DataFrame(sizes).to_csv(os.path.join(OUT, 'sessions.csv'), index=False)

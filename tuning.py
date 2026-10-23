@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from common import NEURON, NOISY, OUT, SESSION, save, save_tex
+from common import NEURON, NOISY, OUT, SESSION, SKIP, save, save_tex
 
 counts = pd.read_csv(f'{OUT}/counts.csv')
 
@@ -29,9 +29,63 @@ neurons = pd.DataFrame({
 }).reset_index()
 neurons.to_csv(f'{OUT}/neurons.csv', index=False)
 
+# choosing a session: its size, its well-tuned neurons (SNR > 1), and whether the stimulus codes behave like
+# consecutive orientations, i.e. whether neighbouring codes (22.5 deg apart) evoke similar population responses
+sessions = pd.read_csv(f'{OUT}/sessions.csv').set_index('session')
+sessions['tuned'] = neurons[neurons.snr > 1].groupby('session').size()
+neighbour = {}
+for s, d in tuning.merge(neurons[neurons.snr > 1][['session', 'neuron']]).groupby('session'):
+    m = d.pivot(index='neuron', columns='orientation', values='mean')
+    z = m.sub(m.mean(axis=1), axis=0).div(m.std(axis=1), axis=0)  # every tuning curve on the same scale
+    corr = np.corrcoef(z.values.T)
+    neighbour[s] = [corr[k, (k + 1) % 8] for k in range(8)]  # codes 1-2, 2-3, ..., 8-1
+sessions['lowest'] = pd.Series({s: min(c) for s, c in neighbour.items()})
+sessions['note'] = ['chosen' if s == SESSION else 'codes out of order' if s in SKIP else '' for s in sessions.index]
+sessions.reset_index()[['session', 'v1', 'v2', 'trials', 'tuned', 'lowest', 'note']].to_latex(
+    f'{OUT}/tab_sessions.tex', index=False, formatters={'lowest': '${:.2f}$'.format}, column_format='lrrrrrl',
+    header=['Session', 'V1 neurons', 'V2 neurons', 'Trials', 'Well-tuned V1', 'Min. neighbour corr.', ''])
+
+fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 4.5), gridspec_kw={'width_ratios': [3, 2]})
+for s, c in neighbour.items():
+    ax1.plot(range(8), c, 'o-', color='#eb6834' if s in SKIP else '0.6', label=s if s in SKIP else 'other sessions')
+ax1.axhline(0, color='k', lw=1)
+handles, labels = ax1.get_legend_handles_labels()
+ax1.legend(handles[:2], labels[:2], frameon=False)
+ax1.set(xticks=range(8), xticklabels=[f'{k + 1}-{(k + 1) % 8 + 1}' for k in range(8)],
+        xlabel='Neighbouring stimulus codes', ylabel='Correlation of responses')
+ax1.set_title('(a)', loc='left')
+odd = tuning[(tuning.session == SKIP[0]) & tuning.neuron.isin([55, 88, 94, 103])]  # examples shown in EDA.ipynb
+for n, d in odd.groupby('neuron'):
+    ax2.plot(np.r_[d.orientation, 180], np.r_[d['mean'], d['mean'].iloc[0]] / d['mean'].max(), 'o-', color='#eb6834')
+ax2.set(xticks=[0, 45, 90, 135, 180], xlabel='Orientation (deg)', ylabel='Response / maximum')
+ax2.set_title(f'(b)  four neurons of {SKIP[0]}', loc='left')
+save(fig, 'sessions')
+
 # figures for the selected session
 tun = tuning[tuning.session == SESSION]
 nrn = neurons[neurons.session == SESSION].set_index('neuron')
+
+# from trials to a tuning curve: the count of every trial of the selected neuron, and the mean of each orientation
+trials = counts[(counts.session == SESSION) & (counts.neuron == NEURON)]
+curve = tun[tun.neuron == NEURON]
+fig, ax = plt.subplots(figsize=(8, 5))
+ax.scatter(trials.orientation + np.random.default_rng(0).uniform(-7, 7, len(trials)), trials['count'], s=5, color='0.75')
+ax.errorbar(curve.orientation, curve['mean'], curve.sd, fmt='o-', color='k', ms=7, capsize=5)
+ax.set(xticks=curve.orientation, xticklabels=[f'{o:g}' for o in curve.orientation], xlabel='Orientation (deg)',
+       ylabel='Spike count per trial')
+save(fig, 'trial_counts')
+
+# choosing a neuron: signal-to-noise ratio of every neuron in the session, highest first
+ranked = nrn.snr.sort_values(ascending=False)
+fig, ax = plt.subplots(figsize=(8, 4.5))
+rank = np.arange(1, len(ranked) + 1)
+ax.plot(rank, ranked.values, 'o', color='0.6', ms=4)
+chosen = ranked.index.get_loc(NEURON)
+ax.plot(rank[chosen], ranked[NEURON], 'o', color='k', ms=8)
+ax.annotate(f'#{NEURON}', (rank[chosen], ranked[NEURON]), xytext=(8, 0), textcoords='offset points', va='center')
+ax.axhline(1, color='k', lw=1, ls='--')
+ax.set(yscale='log', xlabel='Neuron, ranked by SNR', ylabel='Signal-to-noise ratio')
+save(fig, 'snr_rank')
 
 # example tuning curves: the highest-SNR neuron for each preferred orientation
 examples = nrn.sort_values('snr').groupby('pref').tail(1).sort_values('pref').index
@@ -59,7 +113,13 @@ for n in [NEURON] + NOISY:
 ax.set(yscale='log', xticks=[0, 45, 90, 135], xlabel='Preferred orientation (deg)', ylabel='Signal-to-noise ratio')
 save(fig, 'neuron_map')
 
+peak, low = curve.loc[curve['mean'].idxmax()], curve.loc[curve['mean'].idxmin()]
 save_tex('tuning',
+         nbrSkip=f'{sessions.lowest[SKIP[0]]:.2f}', nbrOthers=f'{sessions.lowest.drop(SKIP).min():.2f}',
+         tunedChosen=int(sessions.tuned[SESSION]), nVtwo=int(sessions.v2[SESSION]),
+         nSkipVOne=int(sessions.v1[SKIP[0]]), vOneRange=f'{sessions.v1.min()}--{sessions.v1.max()}',
+         meanPeak=f'{peak["mean"]:.0f}', sdPeak=f'{peak.sd:.0f}', semPeak=f'{peak["sem"]:.1f}',
+         meanLow=f'{low["mean"]:.0f}', sdLow=f'{low.sd:.0f}', oriLow=f'{low.orientation:g}',
          nSessions=counts.session.nunique(),
          nNeurons=len(nrn),
          nTrials=counts[counts.session == SESSION].trial.nunique(),

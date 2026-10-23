@@ -12,6 +12,15 @@ means, floor = split_means(trials)
 train, val = means['train'].values, means['val'].values
 sem = trials[trials.split == 'train'].groupby('orientation')['count'].sem().values
 
+# the data the models see: one row per trial (the first 8 shown) and the 8 training means they are fitted to
+trials.head(8)[['trial', 'stim', 'orientation', 'count', 'split']].to_latex(
+    f'{OUT}/tab_trials.tex', index=False, float_format='%g',
+    header=['Trial', 'Code', 'Orientation (deg)', 'Spike count', 'Split'])
+by_ori = trials[trials.split == 'train'].groupby('orientation')['count']
+pd.DataFrame({'Training trials': by_ori.size().map('{:d}'.format), 'Mean count': by_ori.mean().map('{:.2f}'.format),
+              'SD': by_ori.std().map('{:.2f}'.format), 'SEM': by_ori.sem().map('{:.2f}'.format)}).T.rename(
+    columns='{:g}'.format).rename_axis(columns='Orientation (deg)').to_latex(f'{OUT}/tab_means.tex', column_format='lrrrrrrrr')
+
 # fit each model to the 8 training means (same solution as fitting the 1920 training trials)
 fits = {m: fit(m, ORI, train) for m in MODELS}
 table = pd.DataFrame([{'Model': m, '$k$': N_PARAMS[m], **metrics(train, f(ORI)), 'Val. MSE': metrics(val, f(ORI))['MSE']}
